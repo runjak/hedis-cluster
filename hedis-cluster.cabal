@@ -1,0 +1,28 @@
+name:                hedis-cluster
+version:             0.1.0.0
+synopsis:
+  Client library for the Redis datastore in cluster mode.
+  Aiming to enhance hedis by adding cluster focussed logic.
+-- description:
+homepage:            https://github.com/runjak/hedis-cluster#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Jakob Runge <sicarius@g4t3.de>
+maintainer:          Jakob Runge <sicarius@g4t3.de>
+copyright:           BSD3
+category:            Database
+build-type:          Simple
+homepage:            https://github.com/runjak/hedis-cluster
+bug-reports:         https://github.com/runjak/hedis-cluster/issues
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Lib
+  build-depends:       base >= 4.7 && < 5
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/runjak/hedis-cluster

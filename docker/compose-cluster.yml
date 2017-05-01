@@ -1,0 +1,51 @@
+# See https://docs.docker.com/compose/compose-file/
+version: '3'
+
+services:
+  '7000':
+    container_name: hedis_cluster_7000
+    build: ./7000
+    image: hedis/redis_7000
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7000:7000'
+
+  '7001':
+    container_name: hedis_cluster_7001
+    build: ./7001
+    image: hedis/redis_7001
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7001:7001'
+
+  '7002':
+    container_name: hedis_cluster_7002
+    build: ./7002
+    image: hedis/redis_7002
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7002:7002'
+
+  '7003':
+    container_name: hedis_cluster_7003
+    build: ./7003
+    image: hedis/redis_7003
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7003:7003'
+
+  '7004':
+    container_name: hedis_cluster_7004
+    build: ./7004
+    image: hedis/redis_7004
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7004:7004'
+
+  '7005':
+    container_name: hedis_cluster_7005
+    build: ./7005
+    image: hedis/redis_7005
+    network_mode: 'host'
+    ports:
+      - '127.0.0.1:7005:7005'
