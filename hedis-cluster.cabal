@@ -19,6 +19,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
+  ghc-options:        -Wall -fwarn-tabs
   exposed-modules:     Database.Redis.Cluster,
                        Database.Redis.Cluster.Commands,
                        Database.Redis.Cluster.CRC16,
@@ -34,3 +35,13 @@ library
 source-repository head
   type:     git
   location: https://github.com/runjak/hedis-cluster
+
+test-suite hedis-cluster-test
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Test.hs
+  build-depends:    base,
+                    hedis-cluster,
+                    HUnit
+  other-modules: Test.Database.Redis.Cluster.CRC16
+  default-language: Haskell2010
