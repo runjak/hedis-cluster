@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Test.Database.Redis.Cluster.CRC16 (test) where
 
-import Control.Monad (void)
 import Database.Redis.Cluster.Commands (hashSlots)
 import Test.HUnit (Assertion, Test(..))
 import qualified Database.Redis.Cluster.CRC16 as CRC16

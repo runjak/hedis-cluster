@@ -41,7 +41,10 @@ test-suite hedis-cluster-test
   hs-source-dirs:   test
   main-is:          Test.hs
   build-depends:    base,
+                    bytestring >= 0.9,
                     hedis-cluster,
+                    hedis >= 0.9.8,
                     HUnit
-  other-modules: Test.Database.Redis.Cluster.CRC16
+  other-modules: Test.Database.Redis.Cluster.CRC16,
+                 Test.Database.Redis.Cluster.Types
   default-language: Haskell2010
