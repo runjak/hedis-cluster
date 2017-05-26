@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Database.Redis.Cluster where
 
-import Control.Monad ((<=<))
+import Control.Monad
+import Data.Monoid ((<>))
 import Data.IntMap (IntMap)
 import Database.Redis.Cluster.Connection (Connection, ConnectInfo)
+import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.IntMap as IntMap
@@ -23,8 +25,17 @@ meet = go . Map.toList . Connection.connectionMap
           command = Commands.meet' hostName portId
       mapM (Redis.runRedis `flip` command) $ fmap snd connections'
 
-chunkSlots :: Integer -> [Types.SlotRange]
-chunkSlots count
+chunkSlots :: [Redis.Connection] -> IO [Either Redis.Reply Redis.Status]
+chunkSlots connections =
+  let slotRanges = chunkSlots' . fromIntegral $ length connections
+  in zipWithM go connections slotRanges
+  where
+    go connection (startSlot, endSlot) =
+      let command = Commands.addSlots [startSlot .. endSlot]
+      in Redis.runRedis connection command
+
+chunkSlots' :: Integer -> [Types.SlotRange]
+chunkSlots' count
   | count <= 0 = []
   | otherwise =
     let (d, m) = (2^14) `divMod` count
@@ -40,8 +51,14 @@ chunkSlots count
   Round robin distribution will likely not be practical,
   but can be used for testing purposes.
 |-}
-roundRobinSlots :: Int -> [[Types.SlotRange]]
-roundRobinSlots count = toRange $ distribute count [0..(2^14 - 1)]
+roundRobinSlots :: [Redis.Connection] -> IO [Either Redis.Reply Redis.Status]
+roundRobinSlots connections =
+  let slotRanges = roundRobinSlots' $ length connections
+      runAddSlots conn range = Redis.runRedis conn $ Commands.addSlots range
+  in zipWithM runAddSlots connections slotRanges
+
+roundRobinSlots' :: Int -> [[Types.Slot]]
+roundRobinSlots' count = List.transpose $ distribute count Commands.slotRange
   where
     distribute :: Int -> [Types.Slot] -> [[Types.Slot]]
     distribute     _    [] = []
@@ -49,8 +66,49 @@ roundRobinSlots count = toRange $ distribute count [0..(2^14 - 1)]
       let (x, xs) = List.splitAt count range
       in x:distribute count xs
 
-    toRange :: [[Types.Slot]] -> [[Types.SlotRange]]
-    toRange = fmap (fmap (\x -> (x, x))) . List.transpose
+{-|
+  This function is evil and may throw at you.
+|-}
+-- setupChunked :: Connection -> Int -> IO Bool
+setupChunked connection replication = do
+  let connections = Connection.getRedisConnections connection
+      masterCount = (length connections) `div` replication
+      (masters, slaves) = splitAt masterCount connections
+      allOk = all (== (Right Redis.Ok))
+
+  flushes <- Connection.redisAll connections Redis.flushall
+  unless (allOk flushes) . fail $
+    "Some flushes failed: " <> show (Either.lefts flushes)
+
+  --resets <- Connection.redisAll connections $ Commands.reset Types.Soft
+  --unless (allOk resets) . fail $
+  --  "Some resets failed: " <> show (Either.lefts resets)
+
+  meetings <- meet connection
+  unless (allOk meetings) . fail $
+    "Some meetings failed: " <> show (Either.lefts meetings)
+
+  slotAssignments <- chunkSlots masters
+  unless (allOk slotAssignments) . fail $
+    "Some slotAssignments failed: " <> show (Either.lefts slotAssignments)
+
+  masterNodeInfoLists' <- mapM (Redis.runRedis `flip` Commands.nodes) masters
+  let masterNodeInfoLists = Either.rights masterNodeInfoLists'
+  unless (length masterNodeInfoLists == masterCount) . fail $
+    "Failed to aquire all nodeInfos: " <> show (Either.lefts masterNodeInfoLists')
+
+  let filterMyselfs = fmap (filter (List.elem Types.Myself . Types.flags))
+      masterNodeIds = fmap Types.nodeId . concat $ filterMyselfs masterNodeInfoLists
+
+  replications <- zipWithM Redis.runRedis slaves $
+    fmap (Commands.replicate) masterNodeIds
+  unless (allOk replications) . fail $
+    "Failed to setup all replications: " <> show (Either.lefts replications)
+
+  slotMaps <- mapM (Redis.runRedis `flip` Commands.slots) connections
+  connection' <- foldM Connection.updateSlotMap connection $ Either.rights slotMaps
+
+  return connection'
 
 testHosts :: [Redis.ConnectInfo]
 testHosts = do
@@ -59,3 +117,8 @@ testHosts = do
     Redis.connectHost = "127.0.0.1"
   , Redis.connectPort = Redis.PortNumber port
   }
+
+testSlotParser = do
+  connection <- Connection.connect testHosts
+  let connections = Connection.getRedisConnections connection
+  Connection.redisAll connections Commands.slots

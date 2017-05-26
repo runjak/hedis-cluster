@@ -146,7 +146,7 @@ readNodeFlags = Maybe.catMaybes . fmap go . Char8.split ','
     go _           = Nothing
 
 instance Redis.RedisResult NodeInfo where
-  decode r@(Redis.SingleLine line) = maybe (Left r) Right $ case Char8.words line of
+  decode r@(Redis.Bulk (Just line)) = maybe (Left r) Right $ case Char8.words line of
     (nodeId : hostNamePort : flags : masterNodeId : pingSent : pongRecv : epoch : linkState : slots) ->
       case Char8.split ':' hostNamePort of
         [hostName, port] -> NodeInfo <$> pure nodeId
@@ -162,6 +162,21 @@ instance Redis.RedisResult NodeInfo where
         _ -> Nothing
     _ -> Nothing
   decode r = Left r
+
+testNodeInfoData :: Redis.Reply
+testNodeInfoData = Redis.MultiBulk . Just $ fmap Redis.SingleLine [
+    "07c37dfeb235213a872192d90877d0cd55635b91 127.0.0.1:30004 slave         e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 0 1426238317239 4 connected"
+  , "67ed2db8d677e59ec4a4cefb06858cf2a1a89fa1 127.0.0.1:30002 master        -                                        0 1426238316232 2 connected 5461-10922"
+  , "292f8b365bb7edb5e285caf0b7e6ddc7265d2f4f 127.0.0.1:30003 master        -                                        0 1426238318243 3 connected 10923-16383"
+  , "6ec23923021cf3ffec47632106199cb7f496ce01 127.0.0.1:30005 slave         67ed2db8d677e59ec4a4cefb06858cf2a1a89fa1 0 1426238316232 5 connected"
+  , "824fe116063bc5fcf9f4ffd895bc17aee7731ac3 127.0.0.1:30006 slave         292f8b365bb7edb5e285caf0b7e6ddc7265d2f4f 0 1426238317741 6 connected"
+  , "e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 127.0.0.1:30001 myself,master -                                        0             0 1 connected 0-5460"
+  ]
+
+foo = [Redis.Bulk (Just "c03802c7b90307561e880b4c814adbd7364b10b5 :7000 myself,master - 0 0 0 connected 0-5461\n"),
+       Redis.Bulk (Just "76937e66e0abbbf188bb9fb0e58977665a29724b :7001 myself,master - 0 0 0 connected 5462-10922\n85170ae2f23b286bb0818267db0cdb940240778b 127.0.0.1:17000 handshake - 0 0 0 disconnected\n"),
+       Redis.Bulk (Just "ea19666333a5a2bbe59ee4df8f11dcf27db86595 :7002 myself,master - 0 0 0 connected 10923-16383\n63de6e28f68d4e7d0f68316ed9fb61a0ae13f08b 127.0.0.1:17000 handshake - 0 0 0 disconnected\n")
+      ]
 
 data LinkState =
     Connected
@@ -201,15 +216,17 @@ data SlotMapEntry = SlotMapEntry {
 
 instance Redis.RedisResult SlotMapEntry where
   decode r@(Redis.MultiBulk (Just (
-      Redis.SingleLine startSlot
-    : Redis.SingleLine endSlot
+      Redis.Integer startSlot
+    : Redis.Integer endSlot
     : nodes))) =
     let entryNodes = Either.rights $ fmap Redis.decode nodes
     in maybe (Left r) Right $ case entryNodes of
-      (masterNode:slaveNodes) -> SlotMapEntry <$> readInteger startSlot
-                                              <*> readInteger endSlot
-                                              <*> pure masterNode
-                                              <*> pure slaveNodes
+      (masterNode:slaveNodes) -> pure $ SlotMapEntry {
+          startSlot = startSlot,
+          endSlot = endSlot,
+          masterNode = masterNode,
+          slaveNodes = slaveNodes
+        }
       _ -> Nothing
   decode r = Left r
 
