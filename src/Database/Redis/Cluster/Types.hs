@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Database.Redis.Cluster.Types (
 Slot,
+SlotRange,
 NodeId,
 FailoverOptions(..),
 Count,
@@ -20,6 +21,8 @@ SlotMapEntryNode(..)
 
 import Data.ByteString (ByteString)
 import Data.Function (on)
+import Data.IntMap (IntMap)
+import Data.Map (Map)
 import Data.Monoid ((<>))
 import Database.Redis (HostName)
 import Network.Socket (PortNumber)
@@ -28,6 +31,8 @@ import qualified Data.ByteString.Char8 as Char8
 import qualified Data.Char as Char
 import qualified Data.Either as Either
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.IntMap as IntMap
+import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Database.Redis as Redis
 
@@ -40,6 +45,8 @@ readPortNumber x = case reads (Char8.unpack x) of
   _ -> Nothing
 
 type Slot = Integer
+
+type SlotRange = (Slot, Slot)
 
 type NodeId = ByteString
 
@@ -210,7 +217,17 @@ data SlotMapEntryNode = SlotMapEntryNode {
   slotMapHostName   :: HostName,
   slotMapPortNumber :: PortNumber,
   slotMapNodeId     :: Maybe NodeId
-} deriving (Show, Eq, Ord)
+} deriving (Show, Eq)
+
+-- | Custom order of comparisons:
+instance Ord SlotMapEntryNode where
+  compare n1 n2 =
+    let comparisons = [ compare `on` slotMapNodeId
+                      , compare `on` slotMapHostName
+                      , compare `on` slotMapPortNumber
+                      ]
+        compared = fmap (\λ -> λ n1 n2) comparisons
+    in head $ (filter (/= EQ) compared) <> [EQ]
 
 instance Redis.RedisResult SlotMapEntryNode where
   decode r@(Redis.MultiBulk (Just [
