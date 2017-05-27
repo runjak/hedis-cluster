@@ -7,6 +7,7 @@ FailoverOptions(..),
 Count,
 Info(..),
 Key,
+NodeInfos(..),
 NodeInfo(..),
 NodeInfoFlag(..),
 LinkState(..),
@@ -107,6 +108,16 @@ instance Redis.RedisResult Info where
 
 type Key = ByteString
 
+newtype NodeInfos = NodeInfos {
+  unNodeInfos :: [NodeInfo]
+} deriving (Show, Eq, Ord)
+
+instance Redis.RedisResult NodeInfos where
+  decode r@(Redis.Bulk (Just bulkData)) = maybe (Left r) Right $ do
+    infos <- mapM parseNodeInfo $ Char8.lines bulkData
+    return $ NodeInfos infos
+  decode r = Left r
+
 data NodeInfo = NodeInfo {
   nodeId       :: NodeId,
   hostName     :: HostName,
@@ -146,22 +157,25 @@ readNodeFlags = Maybe.catMaybes . fmap go . Char8.split ','
     go _           = Nothing
 
 instance Redis.RedisResult NodeInfo where
-  decode r@(Redis.Bulk (Just line)) = maybe (Left r) Right $ case Char8.words line of
-    (nodeId : hostNamePort : flags : masterNodeId : pingSent : pongRecv : epoch : linkState : slots) ->
-      case Char8.split ':' hostNamePort of
-        [hostName, port] -> NodeInfo <$> pure nodeId
-                                     <*> pure (Char8.unpack hostName)
-                                     <*> readPortNumber port
-                                     <*> pure (readNodeFlags flags)
-                                     <*> pure (readMasterNodeId masterNodeId)
-                                     <*> readInteger pingSent
-                                     <*> readInteger pongRecv
-                                     <*> readInteger epoch
-                                     <*> readLinkState linkState
-                                     <*> pure (Maybe.catMaybes $ fmap readNodeSlot slots)
-        _ -> Nothing
-    _ -> Nothing
+  decode r@(Redis.Bulk (Just line)) = maybe (Left r) Right $ parseNodeInfo line
   decode r = Left r
+
+parseNodeInfo :: ByteString -> Maybe NodeInfo
+parseNodeInfo line = case Char8.words line of
+  (nodeId : hostNamePort : flags : masterNodeId : pingSent : pongRecv : epoch : linkState : slots) ->
+    case Char8.split ':' hostNamePort of
+      [hostName, port] -> NodeInfo <$> pure nodeId
+                                   <*> pure (Char8.unpack hostName)
+                                   <*> readPortNumber port
+                                   <*> pure (readNodeFlags flags)
+                                   <*> pure (readMasterNodeId masterNodeId)
+                                   <*> readInteger pingSent
+                                   <*> readInteger pongRecv
+                                   <*> readInteger epoch
+                                   <*> readLinkState linkState
+                                   <*> pure (Maybe.catMaybes $ fmap readNodeSlot slots)
+      _ -> Nothing
+  _ -> Nothing
 
 testNodeInfoData :: Redis.Reply
 testNodeInfoData = Redis.MultiBulk . Just $ fmap Redis.SingleLine [
@@ -173,7 +187,8 @@ testNodeInfoData = Redis.MultiBulk . Just $ fmap Redis.SingleLine [
   , "e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 127.0.0.1:30001 myself,master -                                        0             0 1 connected 0-5460"
   ]
 
-foo = [Redis.Bulk (Just "c03802c7b90307561e880b4c814adbd7364b10b5 :7000 myself,master - 0 0 0 connected 0-5461\n"),
+foo = [
+       Redis.Bulk (Just "c03802c7b90307561e880b4c814adbd7364b10b5 :7000 myself,master - 0 0 0 connected 0-5461\n"),
        Redis.Bulk (Just "76937e66e0abbbf188bb9fb0e58977665a29724b :7001 myself,master - 0 0 0 connected 5462-10922\n85170ae2f23b286bb0818267db0cdb940240778b 127.0.0.1:17000 handshake - 0 0 0 disconnected\n"),
        Redis.Bulk (Just "ea19666333a5a2bbe59ee4df8f11dcf27db86595 :7002 myself,master - 0 0 0 connected 10923-16383\n63de6e28f68d4e7d0f68316ed9fb61a0ae13f08b 127.0.0.1:17000 handshake - 0 0 0 disconnected\n")
       ]

@@ -9,6 +9,7 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7000:7000'
+      - '127.0.0.1:17000:17000'
 
   '7001':
     container_name: hedis_cluster_7001
@@ -17,6 +18,7 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7001:7001'
+      - '127.0.0.1:17001:17001'
 
   '7002':
     container_name: hedis_cluster_7002
@@ -25,6 +27,7 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7002:7002'
+      - '127.0.0.1:17002:17002'
 
   '7003':
     container_name: hedis_cluster_7003
@@ -33,6 +36,7 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7003:7003'
+      - '127.0.0.1:17003:17003'
 
   '7004':
     container_name: hedis_cluster_7004
@@ -41,6 +45,7 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7004:7004'
+      - '127.0.0.1:17004:17004'
 
   '7005':
     container_name: hedis_cluster_7005
@@ -49,3 +54,4 @@ services:
     network_mode: 'host'
     ports:
       - '127.0.0.1:7005:7005'
+      - '127.0.0.1:17005:17005'

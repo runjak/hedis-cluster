@@ -83,6 +83,11 @@ info = Redis.sendRequest ["CLUSTER", "INFO"] -- FIXME TEST
 keyslot :: (RedisCtx m f) => Key -> m (f Slot)
 keyslot key = Redis.sendRequest ["CLUSTER", "KEYSLOT", key] -- FIXME TEST
 
+{-|
+  Command a node to meet another node.
+  PortNumber is expected to be the client facing PortNumber,
+  and PortNumber for usage between nodes will be computed from it.
+|-}
 meet :: (RedisCtx m f) => HostName -> PortNumber -> m (f Status)
 meet host port = do
   let host' = Char8.pack host
@@ -98,10 +103,10 @@ meet' host port =
     toClusterPortNumber :: PortID -> Maybe PortNumber
     toClusterPortNumber (Redis.Service _)    = Nothing
     toClusterPortNumber (Redis.UnixSocket _) = Nothing
-    toClusterPortNumber (Redis.PortNumber p) = Just $ 10000 + p
+    toClusterPortNumber (Redis.PortNumber p) = Just p
 
-nodes :: (RedisCtx m f) => m (f [NodeInfo])
-nodes = Redis.sendRequest ["CLUSTER", "NODES"] -- FIXME TEST
+nodes :: (RedisCtx m f) => m (f NodeInfos)
+nodes = Redis.sendRequest ["CLUSTER", "NODES"]
 
 replicate :: (RedisCtx m f) => NodeId -> m (f Status)
 replicate nodeId =  -- FIXME TEST
@@ -132,13 +137,13 @@ setSlot slot slotCommand -- FIXME TEST
     process Stable = ["STABLE"]
     process (Node nodeId) = ["NODE", Char8.pack $ show nodeId]
 
-slaves :: (RedisCtx m f) => NodeId -> m (f [NodeInfo])
+slaves :: (RedisCtx m f) => NodeId -> m (f NodeInfos)
 slaves nodeId =
   let nodeId' = Char8.pack $ show nodeId
   in Redis.sendRequest ["CLUSTER", "SLAVES", nodeId'] -- FIXME TEST
 
 slots :: (RedisCtx m f) => m (f SlotMap)
-slots = Redis.sendRequest ["CLUSTER", "SLOTS"] -- FIXME TEST
+slots = Redis.sendRequest ["CLUSTER", "SLOTS"]
 
 readonly :: (RedisCtx m f) => m (f Status)
 readonly = Redis.sendRequest ["READONLY"]  -- FIXME TEST

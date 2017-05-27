@@ -1,10 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Database.Redis.Cluster where
 
+import Control.Arrow ((&&&))
 import Control.Monad
 import Data.Monoid ((<>))
 import Data.IntMap (IntMap)
 import Database.Redis.Cluster.Connection (Connection, ConnectInfo)
+import qualified Control.Concurrent as Concurrent
 import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -15,15 +17,14 @@ import qualified Database.Redis.Cluster.Connection as Connection
 import qualified Database.Redis.Cluster.Types as Types
 
 meet :: Connection -> IO [Either Redis.Reply Redis.Status]
-meet = go . Map.toList . Connection.connectionMap
-  where
-    go :: [(ConnectInfo, Redis.Connection)] -> IO [Either Redis.Reply Redis.Status]
-    go [] = return []
-    go ((cInfo, _):connections') = do
-      let hostName = Redis.connectHost $ Connection.unConnectInfo cInfo
-          portId = Redis.connectPort $ Connection.unConnectInfo cInfo
-          command = Commands.meet' hostName portId
-      mapM (Redis.runRedis `flip` command) $ fmap snd connections'
+meet = meet' . Map.toList . Connection.connectionMap
+
+meet' :: [(ConnectInfo, Redis.Connection)] -> IO [Either Redis.Reply Redis.Status]
+meet' [] = return []
+meet' ((_, conn):cs) = do
+  let hostPortTuples = fmap ((Redis.connectHost &&& Redis.connectPort) . Connection.unConnectInfo . fst) cs
+      commands = fmap (uncurry Commands.meet') hostPortTuples
+  mapM (Redis.runRedis conn) commands
 
 chunkSlots :: [Redis.Connection] -> IO [Either Redis.Reply Redis.Status]
 chunkSlots connections =
@@ -71,44 +72,64 @@ roundRobinSlots' count = List.transpose $ distribute count Commands.slotRange
 |-}
 -- setupChunked :: Connection -> Int -> IO Bool
 setupChunked connection replication = do
-  let connections = Connection.getRedisConnections connection
+  let connections = Map.toList $ Connection.connectionMap connection
       masterCount = (length connections) `div` replication
       (masters, slaves) = splitAt masterCount connections
-      allOk = all (== (Right Redis.Ok))
+      connections' = fmap snd connections
+      (masters', slaves') = splitAt masterCount connections'
+      -- allOk = all (== (Right Redis.Ok))
 
-  flushes <- Connection.redisAll connections Redis.flushall
-  unless (allOk flushes) . fail $
-    "Some flushes failed: " <> show (Either.lefts flushes)
+  flushes <- Connection.redisAll connections' Redis.flushall
+  -- unless (allOk flushes) . fail $
+  --   "Some flushes failed: " <> show (Either.lefts flushes)
 
-  --resets <- Connection.redisAll connections $ Commands.reset Types.Soft
+  resets <- Connection.redisAll connections' $ Commands.reset Types.Hard
   --unless (allOk resets) . fail $
   --  "Some resets failed: " <> show (Either.lefts resets)
 
-  meetings <- meet connection
-  unless (allOk meetings) . fail $
-    "Some meetings failed: " <> show (Either.lefts meetings)
+  masterMeetings <- meet' masters
+  putStrLn "Master meetings:"
+  print masterMeetings
 
-  slotAssignments <- chunkSlots masters
-  unless (allOk slotAssignments) . fail $
-    "Some slotAssignments failed: " <> show (Either.lefts slotAssignments)
+  slotAssignments <- chunkSlots masters'
+  -- unless (allOk slotAssignments) . fail $
+  --   "Some slotAssignments failed: " <> show (Either.lefts slotAssignments)
 
-  masterNodeInfoLists' <- mapM (Redis.runRedis `flip` Commands.nodes) masters
-  let masterNodeInfoLists = Either.rights masterNodeInfoLists'
+  putStrLn "Slots assigned."
+  print slotAssignments
+  Concurrent.threadDelay 1000000
+
+  -- meetings <- meet connection
+  -- unless (allOk meetings) . fail $
+  --   "Some meetings failed: " <> show (Either.lefts meetings)
+
+  masterNodeInfoLists' <- mapM (Redis.runRedis `flip` Commands.nodes) masters'
+  let masterNodeInfoLists = Types.unNodeInfos <$> Either.rights masterNodeInfoLists'
   unless (length masterNodeInfoLists == masterCount) . fail $
     "Failed to aquire all nodeInfos: " <> show (Either.lefts masterNodeInfoLists')
 
-  let filterMyselfs = fmap (filter (List.elem Types.Myself . Types.flags))
-      masterNodeIds = fmap Types.nodeId . concat $ filterMyselfs masterNodeInfoLists
+  let filterMyselfs = filter (List.elem Types.Myself . Types.flags) . concat :: [[Types.NodeInfo]] -> [Types.NodeInfo]
+      masterNodeIds = Types.nodeId <$> filterMyselfs masterNodeInfoLists
+      -- masterHostnamePorts = (Just . (Types.hostName &&& Types.port)) <$> filterMyselfs masterNodeInfoLists
 
-  replications <- zipWithM Redis.runRedis slaves $
-    fmap (Commands.replicate) masterNodeIds
-  unless (allOk replications) . fail $
-    "Failed to setup all replications: " <> show (Either.lefts replications)
+  -- zipWithM (\s mhp -> Redis.runRedis s $ Commands.slaveOf mhp) slaves masterHostnamePorts
 
-  slotMaps <- mapM (Redis.runRedis `flip` Commands.slots) connections
-  connection' <- foldM Connection.updateSlotMap connection $ Either.rights slotMaps
+  slaveMeetings <- meet' $ head masters : slaves
+  putStrLn "Joined slaves to cluster."
+  print slaveMeetings
 
-  return connection'
+  replications <- zipWithM Redis.runRedis slaves' $ fmap (Commands.replicate) masterNodeIds
+
+  putStrLn "Replicated."
+
+  return replications
+  -- unless (allOk replications) . fail $
+  --   "Failed to setup all replications: " <> show (Either.lefts replications)
+
+  -- slotMaps <- mapM (Redis.runRedis `flip` Commands.slots) connections
+  -- connection' <- foldM Connection.updateSlotMap connection $ Either.rights slotMaps
+
+  -- return connection'
 
 testHosts :: [Redis.ConnectInfo]
 testHosts = do
@@ -118,7 +139,31 @@ testHosts = do
   , Redis.connectPort = Redis.PortNumber port
   }
 
-testSlotParser = do
+testSetupChunked = do
+  connection <- Connection.connect testHosts
+  setupChunked connection 2
+
+testReplication = do
+  connection <- Connection.connect testHosts
+  meet connection
+  let (m:s:_) = Connection.getRedisConnections connection
+  return (m, s)
+
+testSlots = do
   connection <- Connection.connect testHosts
   let connections = Connection.getRedisConnections connection
   Connection.redisAll connections Commands.slots
+
+testMeet = do
+  connection <- Connection.connect testHosts
+  meet connection
+
+testInfo = do
+  connection <- Connection.connect testHosts
+  let connections = Connection.getRedisConnections connection
+  mapM (Redis.runRedis `flip` Commands.info) connections
+
+testNodes = do
+  connection <- Connection.connect testHosts
+  let connections = Connection.getRedisConnections connection
+  mapM (Redis.runRedis `flip` Commands.nodes) connections
