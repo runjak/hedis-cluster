@@ -97,7 +97,6 @@ setupChunked connection replication = do
 
   putStrLn "Slots assigned."
   print slotAssignments
-  Concurrent.threadDelay 1000000
 
   -- meetings <- meet connection
   -- unless (allOk meetings) . fail $
@@ -118,11 +117,16 @@ setupChunked connection replication = do
   putStrLn "Joined slaves to cluster."
   print slaveMeetings
 
-  replications <- zipWithM Redis.runRedis slaves' $ fmap (Commands.replicate) masterNodeIds
+  let second = 1000000
+  Concurrent.threadDelay $ 5 * second
+
+  let replicateCommands = fmap Commands.replicate masterNodeIds
+      slaveCommandPairs = zip slaves' replicateCommands
+  replications <- forM slaveCommandPairs $ uncurry Redis.runRedis
 
   putStrLn "Replicated."
+  print replications
 
-  return replications
   -- unless (allOk replications) . fail $
   --   "Failed to setup all replications: " <> show (Either.lefts replications)
 
@@ -130,6 +134,7 @@ setupChunked connection replication = do
   -- connection' <- foldM Connection.updateSlotMap connection $ Either.rights slotMaps
 
   -- return connection'
+  return ()
 
 testHosts :: [Redis.ConnectInfo]
 testHosts = do

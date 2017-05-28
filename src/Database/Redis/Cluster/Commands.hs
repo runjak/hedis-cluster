@@ -109,9 +109,7 @@ nodes :: (RedisCtx m f) => m (f NodeInfos)
 nodes = Redis.sendRequest ["CLUSTER", "NODES"]
 
 replicate :: (RedisCtx m f) => NodeId -> m (f Status)
-replicate nodeId =  -- FIXME TEST
-  let nodeId' = Char8.pack $ show nodeId
-  in Redis.sendRequest ["CLUSTER", "REPLICATE", nodeId']
+replicate nodeId = Redis.sendRequest ["CLUSTER", "REPLICATE", nodeId]
 
 reset :: (RedisCtx m f) => ResetOptions -> m (f Status)
 reset Soft = Redis.sendRequest ["RESET", "SOFT"] -- FIXME TEST
